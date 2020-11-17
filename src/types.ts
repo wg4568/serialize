@@ -174,6 +174,17 @@ export type Type<Data> = {
     Decode: (data: Uint8Array, idx?: number) => Data;
 };
 
+export type FlagArray = [
+    boolean,
+    boolean,
+    boolean,
+    boolean,
+    boolean,
+    boolean,
+    boolean,
+    boolean
+];
+
 type Bit = 1 | 0;
 type Binary = Bit[];
 
@@ -506,5 +517,56 @@ export const List: Type<Uint8Array[]> = {
         }
 
         return array;
+    }
+};
+
+export const Flags: Type<FlagArray> = {
+    Length: (data: FlagArray) => {
+        return 1;
+    },
+    Validate: (data: Uint8Array, idx: number = 0) => {
+        return data.length - idx >= 1;
+    },
+    Encode: (data: FlagArray) => {
+        var byte: number = 0;
+        for (var i = 0; i < 8; i++)
+            byte = byte | ((data[i] ? 1 : 0) << (7 - i));
+
+        return new Uint8Array([byte]);
+    },
+    Decode: (data: Uint8Array, idx: number = 0) => {
+        if (!Flags.Validate(data, idx)) throw new ValidationError();
+        var number = data[idx];
+        var flags: FlagArray = [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+        ];
+
+        for (var i = 0; i < 8; i++) flags[i] = (number & (1 << (7 - i))) != 0;
+
+        return flags;
+    }
+};
+
+export const Boolean: Type<boolean> = {
+    Length: (data: boolean) => {
+        return 1;
+    },
+    Validate: (data: Uint8Array, idx: number = 0) => {
+        return data.length - idx >= 1;
+    },
+    Encode: (data: boolean) => {
+        return new Uint8Array([data ? 255 : 0]);
+    },
+    Decode: (data: Uint8Array, idx: number = 0) => {
+        if (!Boolean.Validate(data, idx)) throw new ValidationError();
+
+        return data[idx] != 0;
     }
 };
