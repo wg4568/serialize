@@ -1,5 +1,3 @@
-import { collapseTextChangeRangesAcrossMultipleVersions } from "typescript";
-
 function convertToBase(val: number, base: number, length?: number): number[] {
     var result: number[] = [];
 
