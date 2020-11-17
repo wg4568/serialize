@@ -1,4 +1,7 @@
 function convertToBase(val: number, base: number, length?: number): number[] {
+    if (val == 0 && length) new Array(length).fill(0);
+    else if (val == 0) return [0];
+
     var result: number[] = [];
 
     while (val > 0) {
@@ -15,15 +18,16 @@ function convertToBase(val: number, base: number, length?: number): number[] {
         while (result.length < length) result.push(0);
     }
 
-    return result;
+    return result.reverse();
 }
 
 function convertFromBase(val: number[], base: number): number {
     var result = 0;
+    var backwards = val.slice().reverse(); // prevent mutation of val
 
     for (var i = 0; i < val.length; i++) {
         let place = Math.pow(base, i);
-        result += val[i] * place;
+        result += backwards[i] * place;
     }
 
     return result;
@@ -74,6 +78,19 @@ function bytesToBinary(data: Uint8Array): Binary {
     return array;
 }
 
+function getFractionBits(val: number, n: number) {
+    var result: Binary = [];
+    var counter = seperateDecimal(val).decimal;
+    while (result.length <= n) {
+        counter *= 2;
+        let { base, decimal } = seperateDecimal(counter);
+        result.push(base as Bit);
+        counter = decimal;
+    }
+
+    return result;
+}
+
 function getSubArray(data: Uint8Array, idx: number, length: number): number[] {
     return Array.from(data.subarray(idx, idx + length));
 }
@@ -82,6 +99,57 @@ function seperateDecimal(val: number): { base: number; decimal: number } {
     var base = Math.floor(val);
     var decimal = val - base;
     return { base, decimal };
+}
+
+function encodeFloat(
+    val: number,
+    exponentSize: number,
+    fractionSize: number,
+    bias: number
+) {
+    var sign: Bit = val < 0 ? 1 : 0;
+
+    var array: Binary = [];
+    var { base } = seperateDecimal(val);
+
+    var left = convertToBase(base, 2) as Binary;
+    var right = getFractionBits(val, fractionSize * 2);
+    var joined = [...left, ...right];
+
+    for (var i = 0; i < joined.length; i++) if (joined[i] != 0) break;
+
+    // handle zero
+    if (i == joined.length) {
+        var exponent = convertToBase(0, 2, exponentSize);
+        i = 0;
+    } else {
+        var exponent = convertToBase(
+            left.length - i - 1 + bias,
+            2,
+            exponentSize
+        );
+    }
+
+    var fraction = joined.slice(i + 1, i + 1 + fractionSize);
+    return binaryToBytes([sign, ...(exponent as Binary), ...fraction]);
+}
+
+function decodeFloat(
+    val: Uint8Array,
+    exponentSize: number,
+    fractionSize: number,
+    bias: number
+): number {
+    var binary = bytesToBinary(val);
+    var sign = binary[0] == 1 ? -1 : 1;
+    var exponent = convertFromBase(binary.slice(1, 1 + exponentSize), 2) - bias;
+    var fraction =
+        binary
+            .slice(1 + exponentSize, 1 + exponentSize + fractionSize)
+            .map((b, i) => b * Math.pow(2, -i - 1))
+            .reduce((a, b) => a + b) + 1;
+
+    return fraction * Math.pow(2, exponent) * sign;
 }
 
 class OutOfBoundsError extends Error {
@@ -103,8 +171,8 @@ type Type<Data> = {
     Decode: (data: Uint8Array, idx?: number) => Data;
 };
 
-type Byte = 1 | 0;
-type Binary = Byte[];
+type Bit = 1 | 0;
+type Binary = Bit[];
 
 export const String8: Type<string> = {
     Length: (data: string) => {
@@ -362,7 +430,7 @@ export const Uint32: Type<number> = {
     }
 };
 
-export const Float32: Type<number> = {
+export const Float: Type<number> = {
     Length: (data: number) => {
         return 4;
     },
@@ -370,47 +438,16 @@ export const Float32: Type<number> = {
         return data.length - idx >= 4;
     },
     Encode: (data: number) => {
-        var sign: Byte = data < 0 ? 1 : 0;
-        data = Math.abs(data);
-
-        var { base } = seperateDecimal(data);
-        var counter = data - base;
-
-        var integer: Binary = convertToBase(base, 2).reverse() as Binary;
-        var fraction: Binary = [];
-
-        while (integer.length + fraction.length <= 23) {
-            counter *= 2;
-
-            let { base, decimal } = seperateDecimal(counter);
-            fraction.push(base == 0 ? 0 : 1);
-            counter = decimal;
-        }
-
-        var exponent: Binary = convertToBase(
-            integer.length - 1 + 127,
-            2,
-            8
-        ).reverse() as Binary;
-
-        var mantissa = [...integer, ...fraction].splice(1);
-        return binaryToBytes([sign, ...exponent, ...mantissa]);
+        return encodeFloat(data, 8, 23, 127);
     },
-    Decode: (data: Uint8Array) => {
-        var binary = bytesToBinary(data);
-        var sign = binary[0] == 0 ? 1 : -1;
-        var exponent = convertFromBase(binary.slice(1, 9).reverse(), 2) - 127;
-        var mantissa =
-            binary
-                .slice(9)
-                .map((b, i) => b * Math.pow(2, -i - 1))
-                .reduce((a, b) => a + b) + 1;
+    Decode: (data: Uint8Array, idx: number = 0) => {
+        if (!Uint32.Validate(data, idx)) throw new ValidationError();
 
-        return mantissa * Math.pow(2, exponent) * sign;
+        return decodeFloat(data.subarray(idx, idx + 4), 8, 23, 127);
     }
 };
 
-export const Float64: Type<number> = {
+export const Double: Type<number> = {
     Length: (data: number) => {
         return 8;
     },
@@ -418,42 +455,11 @@ export const Float64: Type<number> = {
         return data.length - idx >= 8;
     },
     Encode: (data: number) => {
-        var sign: Byte = data < 0 ? 1 : 0;
-        data = Math.abs(data);
-
-        var { base } = seperateDecimal(data);
-        var counter = data - base;
-
-        var integer: Binary = convertToBase(base, 2).reverse() as Binary;
-        var fraction: Binary = [];
-
-        while (integer.length + fraction.length <= 52) {
-            counter *= 2;
-
-            let { base, decimal } = seperateDecimal(counter);
-            fraction.push(base == 0 ? 0 : 1);
-            counter = decimal;
-        }
-
-        var exponent: Binary = convertToBase(
-            integer.length - 1 + 1023,
-            2,
-            11
-        ).reverse() as Binary;
-
-        var mantissa = [...integer, ...fraction].splice(1);
-        return binaryToBytes([sign, ...exponent, ...mantissa]);
+        return encodeFloat(data, 11, 52, 1023);
     },
-    Decode: (data: Uint8Array) => {
-        var binary = bytesToBinary(data);
-        var sign = binary[0] == 0 ? 1 : -1;
-        var exponent = convertFromBase(binary.slice(1, 12).reverse(), 2) - 1023;
-        var mantissa =
-            binary
-                .slice(12)
-                .map((b, i) => b * Math.pow(2, -i - 1))
-                .reduce((a, b) => a + b) + 1;
+    Decode: (data: Uint8Array, idx: number = 0) => {
+        if (!Uint32.Validate(data, idx)) throw new ValidationError();
 
-        return mantissa * Math.pow(2, exponent) * sign;
+        return decodeFloat(data.subarray(idx, idx + 8), 11, 52, 1023);
     }
 };
