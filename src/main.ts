@@ -444,8 +444,6 @@ export const Float64: Type<number> = {
         ).reverse() as Binary;
 
         var mantissa = [...integer, ...fraction].splice(1);
-        console.log([sign, ...exponent, ...mantissa].join(""));
-
         return binaryToBytes([sign, ...exponent, ...mantissa]);
     },
     Decode: (data: Uint8Array) => {
