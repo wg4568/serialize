@@ -1,13 +1,8 @@
-import { Data, PackingMachine } from "./packer";
-import { Int16, List, String8, Uint8 } from "./types";
+import { Data, PackingMachine, Int16, List, String8, Uint8 } from "./serialize";
 
 var pm = new PackingMachine();
 pm.format("Player", [Int16, String8, Uint8, Uint8, Uint8]);
 pm.format("PlayerArray", [List]);
-
-// var out = (pm.unpack(bytes).data[0] as Uint8Array[]).map(
-//     (p) => pm.unpack(p).data
-// );
 
 var players = [
     [342, "william", 255, 0, 0],
