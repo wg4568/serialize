@@ -25,9 +25,12 @@ type Format = {
     schema: Type<any>[];
 };
 
+type Callback = (data: Data[], type: string) => any;
+
 export class PackingMachine {
     private formats: Map<string, Format> = new Map<string, Format>();
     private serializer: Map<number, string> = new Map<number, string>();
+    private funcs: Map<string, Callback> = new Map<string, Callback>();
 
     format(name: string, format: Type<any>[]): void {
         var id = this.formats.size;
@@ -36,6 +39,10 @@ export class PackingMachine {
             serialized: id,
             schema: format
         });
+    }
+
+    on(type: string, func: (data: Data[], type: string) => any) {
+        this.funcs.set(type, func);
     }
 
     pack(type: string, data: Data[]): Uint8Array {
@@ -68,5 +75,12 @@ export class PackingMachine {
         }
 
         return { name: name, data: array };
+    }
+
+    receive(packet: Uint8Array) {
+        var { name, data } = this.unpack(packet);
+
+        var func = this.funcs.get(name);
+        if (func) func(data, name);
     }
 }
